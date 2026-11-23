@@ -1,5 +1,5 @@
 // オフラインでも開けるよう、アプリ本体を端末に保存します（データの同期は Firebase が担当）。
-const CACHE = 'travel-app-v9';
+const CACHE = 'travel-app-v10';
 const SHELL = ['./', 'index.html', 'app.js', 'store.js', 'icons.js', 'sheet.js', 'config.js', 'seed-singapore.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => {

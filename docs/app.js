@@ -257,6 +257,16 @@ function bindTrip(t) {
   }));
   app.querySelectorAll('[data-goto]').forEach((b) => (b.onclick = () => go(`#/trip/${t.id}/${b.dataset.goto}`)));
 }
+const pill = (text, cls = '') => `<span class="pill ${cls}">${text}</span>`;
+function duePill(due, done, t) {
+  if (!due) return '';
+  const left = daysBetween(todayStr(), due);
+  const label = fmtDate(due, due.slice(0, 4) !== (t.startDate || todayStr()).slice(0, 4));
+  if (done) return pill(label);
+  if (left < 0) return pill(`${ic('circle-alert', 12)}${label} 期限切れ`, 'red');
+  if (left <= 14) return pill(`${ic('clock', 12)}${label}${left === 0 ? ' 今日' : ` あと${left}日`}`, 'amber');
+  return pill(`${ic('clock', 12)}${label}`);
+}
 const addBtn = (kind, preset) => `<button class="fab" data-add="${kind}" ${preset ? `data-preset='${esc(JSON.stringify(preset))}'` : ''}>${ic('plus', 18)}${KINDS[kind].add}</button>`;
 const linkOut = (u) => (safeUrl(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener" class="ext">リンク${ic('external-link', 14)}</a>` : '');
 const filterBar = (opts) => {
@@ -295,16 +305,16 @@ function renderOverview(t) {
       <button class="link" data-goto="expense">精算を見る</button></section>
     <section class="card"><h3>決まったこと</h3>
       ${chosen.length ? chosen.map((c) => `<div class="line" data-edit="${esc(c.id)}">${catIcon(c.group)}<b>${esc(c.group)}</b>：${esc(c.title)}</div>`).join('') : '<p class="muted small">比較タブで「決定」にした候補がここに出ます</p>'}</section>
-    ${t.memo ? `<section class="card"><h3>旅行メモ</h3><p class="pre">${esc(t.memo)}</p></section>` : ''}`;
+    ${t.memo ? `<section class="card"><h3>旅行メモ</h3><p class="small pre clamp3">${esc(t.memo)}</p></section>` : ''}`;
 }
 
 // ---------- 旅程 ----------
 function planRow(p) {
-  return `<div class="item" data-edit="${esc(p.id)}"><div class="time">${esc(p.time || '')}${p.endTime ? '<br><small>〜' + esc(p.endTime) + '</small>' : ''}</div>
+  return `<div class="item" data-edit="${esc(p.id)}"><div class="time">${p.time ? `<span class="tpill">${esc(p.time)}</span>` : ''}</div>
     <div class="grow"><div class="title">${esc(p.title)}</div>
     ${p.place ? `<div class="small muted row">${ic('map-pin', 14)}&nbsp;${esc(p.place)}</div>` : ''}
-    ${p.memo ? `<div class="small pre">${esc(p.memo)}</div>` : ''}
-    <div class="small">${p.amount ? money(p.amount, p.currency, trip()) + ' ' : ''}${linkOut(p.link)}</div></div></div>`;
+    ${p.memo ? `<div class="small muted clamp">${esc(p.memo)}</div>` : ''}
+    ${p.amount || safeUrl(p.link) ? `<div class="small">${p.amount ? money(p.amount, p.currency, trip()) + ' ' : ''}${linkOut(p.link)}</div>` : ''}</div></div>`;
 }
 function renderPlan(t) {
   const plans = itemsOf('plan');
@@ -339,20 +349,17 @@ function renderBookings(t) {
       <div class="small">${b.date ? fmtDate(b.date) + ' ' + esc(b.time || '') : '日付未定'}${b.endDate ? ' 〜 ' + fmtDate(b.endDate) : ''}</div>
       ${b.confNo ? `<div class="conf">予約番号 <b>${esc(b.confNo)}</b></div>` : ''}
       <div class="small">${money(b.amount, b.currency, t)} ${b.paid ? `<span class="tag ${b.paid === '未払い' ? 'warn' : ''}">${esc(b.paid)}</span>` : ''} ${linkOut(b.link)}</div>
-      ${b.memo ? `<div class="small pre muted">${esc(b.memo)}</div>` : ''}</div></div>`).join('')
+      ${b.memo ? `<div class="small muted clamp">${esc(b.memo)}</div>` : ''}</div></div>`).join('')
     + `<p class="total">合計 ${yenApprox(total)}</p>`
     : '<div class="empty">予約した航空券・ホテル・チケットの予約番号や金額をここにまとめます</div>') + addBtn('booking');
 }
 
 // ---------- やること ----------
 function todoRow(i, t) {
-  const today = todayStr();
-  const late = !i.done && i.due && i.due < today;
   return `<div class="item todo ${i.done ? 'done' : ''}" data-edit="${esc(i.id)}">
     <input type="checkbox" data-done="${esc(i.id)}" ${i.done ? 'checked' : ''} aria-label="完了">
     <div class="grow"><div class="title">${esc(i.title)}</div>
-    <div class="small ${late ? 'late' : 'muted'}">${i.due ? '期限 ' + fmtDate(i.due, i.due.slice(0, 4) !== (t.startDate || '').slice(0, 4)) + (late ? '（過ぎています）' : '') : ''}${i.who ? ' ・ ' + esc(i.who) : ''}${i.category ? ' ・ ' + esc(i.category) : ''}</div>
-    ${i.memo ? `<div class="small pre muted">${esc(i.memo)}</div>` : ''}${linkOut(i.link)}</div></div>`;
+    <div class="meta">${duePill(i.due, i.done, t)}${i.who && i.who !== '2人' ? pill(esc(i.who)) : ''}${i.memo || i.link ? `<span class="more">${ic('notebook-pen', 12)}メモ</span>` : ''}</div></div></div>`;
 }
 function renderTodos(t) {
   const who = ['2人', ...people(t)];
@@ -428,14 +435,18 @@ function renderCandidates(t) {
 }
 
 // ---------- メモ ----------
+function noteCard(n) {
+  return `<div class="item card note imp-${esc(n.importance || '中')}" data-edit="${esc(n.id)}"><div class="grow">
+    <div class="row"><span class="title grow">${esc(n.title)}</span>${n.importance === '高' ? pill('重要', 'red') : ''}</div>
+    ${n.body ? `<div class="small clamp">${esc(n.body)}</div>` : ''}</div></div>`;
+}
 function renderNotes(t) {
   const all = itemsOf('note');
   const cats = [...new Set(all.map((n) => n.category || 'その他'))];
-  const list = filtered(all, 'category').sort((a, b) => ({ 高: 0, 中: 1, 低: 2 }[a.importance] ?? 1) - ({ 高: 0, 中: 1, 低: 2 }[b.importance] ?? 1) || (a.order ?? 0) - (b.order ?? 0));
-  return (cats.length > 1 ? filterBar(cats) : '') + (list.length ? list.map((n) => `<div class="item card note imp-${esc(n.importance || '中')}" data-edit="${esc(n.id)}"><div class="grow">
-      <div class="row"><span class="tag">${esc(n.category || 'その他')}</span><span class="title grow">${esc(n.title)}</span>${n.importance === '高' ? '<span class="tag warn">重要</span>' : ''}</div>
-      ${n.body ? `<div class="pre small">${esc(n.body)}</div>` : ''}
-      <div class="small muted">${esc(n.source || '')} ${linkOut(n.link)}</div></div></div>`).join('') : '<div class="empty">注意点・持ち物・現地情報などのメモ</div>') + '<p class="small"><button class="link" data-sheet-link>スプレッドシートの表を表示する</button></p>' + addBtn('note');
+  const imp = (x) => ({ 高: 0, 中: 1, 低: 2 }[x.importance] ?? 1);
+  const list = filtered(all, 'category').sort((a, b) => imp(a) - imp(b) || (a.order ?? 0) - (b.order ?? 0));
+  const groups = [...new Set(list.map((n) => n.category || 'その他'))];
+  return (cats.length > 1 ? filterBar(cats) : '') + (list.length ? groups.map((g) => `<h2>${esc(g)}</h2>` + list.filter((n) => (n.category || 'その他') === g).map(noteCard).join('')).join('') : '<div class="empty">注意点・持ち物・現地情報などのメモ</div>') + '<p class="small"><button class="link" data-sheet-link>スプレッドシートの表を表示する</button></p>' + addBtn('note');
 }
 
 // ================= 入力フォーム =================
@@ -583,14 +594,26 @@ function sheetCards(tab) {
   // 1列目が短い印（◎おすすめ・カテゴリ等）なら、2列目を名前にする
   const badgeCol = header.length > 2 && body.every((r) => (r[0] || '').length <= 10) && body.some((r) => r[1]);
   const titleCol = badgeCol ? 1 : 0;
-  return body.map((r) => {
-    const fields = header.map((h, k) => [h, r[k]]).filter(([h, v], k) => h && v && k !== titleCol && !(badgeCol && k === 0));
-    const open = fields.slice(0, 2); const rest = fields.slice(2);
-    const dl = (fs) => `<dl>${fs.map(([h, v]) => `<dt>${esc(h)}</dt><dd>${cell(v)}</dd>`).join('')}</dl>`;
-    return `<div class="item card cand"><div class="grow">
-      <div class="row"><span class="title grow">${esc(r[titleCol] || r.find(Boolean) || '')}</span>${badgeCol && r[0] ? `<span class="tag">${esc(r[0])}</span>` : ''}</div>
-      ${open.length ? dl(open) : ''}${rest.length ? `<details><summary class="small">詳細</summary>${dl(rest)}</details>` : ''}</div></div>`;
-  }).join('');
+  const find = (re) => header.findIndex((h, k) => k !== titleCol && re.test(h));
+  const priceCol = [/2名合計|2人合計|総額/, /合計|価格|料金|運賃|^金額$|^money/i].map(find).find((k) => k >= 0) ?? -1;
+  const sumCol = find(/^(内容|特徴|特徴・メモ|メモ|notes?)$/i);
+  const todoCol = find(/やること|対策/);
+  const impCol = find(/^重要度$/);
+  const used = new Set([titleCol, priceCol, sumCol, todoCol, impCol, badgeCol ? 0 : -1]);
+  const groupBy = badgeCol && /カテゴリ|分類|category/i.test(header[0]);
+  const card = (r) => {
+    const imp = impCol >= 0 ? r[impCol] : '';
+    const rest = header.map((h, k) => [h, r[k], k]).filter(([h, v, k]) => h && v && v !== '—' && !used.has(k));
+    return `<div class="item card cand ${imp ? 'note imp-' + esc(imp) : ''}"><div class="grow">
+      <div class="row"><span class="title grow">${esc(r[titleCol] || r.find(Boolean) || '')}</span>${imp === '高' ? pill('重要', 'red') : ''}${badgeCol && r[0] && !groupBy ? pill(esc(r[0]), /◎|おすすめ/.test(r[0]) ? 'green' : '') : ''}</div>
+      ${priceCol >= 0 && r[priceCol] && r[priceCol] !== '—' ? `<div class="price">${esc(r[priceCol])}</div>` : ''}
+      ${sumCol >= 0 && r[sumCol] && r[sumCol] !== '—' ? `<div class="small clamp">${esc(r[sumCol])}</div>` : ''}
+      ${todoCol >= 0 && r[todoCol] && r[todoCol] !== '—' ? `<div class="small todo-line">${ic('check', 14)}<span>${esc(r[todoCol])}</span></div>` : ''}
+      ${rest.length ? `<details><summary class="small">詳細</summary><dl>${rest.map(([h, v]) => `<dt>${esc(h)}</dt><dd>${cell(v)}</dd>`).join('')}</dl></details>` : ''}</div></div>`;
+  };
+  if (!groupBy) return body.map(card).join('');
+  const groups = [...new Set(body.map((r) => r[0] || 'その他'))];
+  return groups.map((g) => `<h3 class="sub">${esc(g)}</h3>` + body.filter((r) => (r[0] || 'その他') === g).map(card).join('')).join('');
 }
 function sheetTable(tab) {
   const { header, body } = tab;
