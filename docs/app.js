@@ -110,20 +110,26 @@ const itemsOf = (kind) => S.items.filter((i) => i.kind === kind);
       S.error = '';
       S.trips = list.sort((a, b) => (a.startDate || '9').localeCompare(b.startDate || '9'));
       route();
-    }, onErr);
+    }, onErr('旅行の一覧'));
   });
   window.addEventListener('hashchange', route);
   window.addEventListener('online', render); window.addEventListener('offline', render);
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
-function onErr(e) { console.error(e); S.error = e.code === 'permission-denied' ? 'データを読めませんでした（Firestoreのルールが公開されているか、共有メンバーに入っているか確認してください）' : e.message; render(); }
+function onErr(where) {
+  return (e) => {
+    console.error(where, e);
+    S.error = (e.code === 'permission-denied' ? `${where}を読めませんでした（共有メンバーに入っているか確認してください）` : `${where}の読み込みでエラー：${e.message}`) + ` [${e.code || 'error'}]`;
+    render();
+  };
+}
 
 function route() {
   const [, page, id, tab] = location.hash.split('/');
   if (page === 'trip' && id) {
     if (S.tripId !== id) {
       S.unsubItems?.(); S.items = []; S.tripId = id;
-      S.unsubItems = S.store.watchItems(id, (list) => { S.error = ''; S.items = list; render(); }, onErr);
+      S.unsubItems = S.store.watchItems(id, (list) => { S.error = ''; S.items = list; render(); }, onErr('旅行の中身'));
     }
     S.tab = TABS.some((t) => t[0] === tab) ? tab : 'overview';
   } else {
