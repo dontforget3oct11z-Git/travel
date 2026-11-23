@@ -34,5 +34,5 @@
 2. **Firebase**：プロジェクトを作成 → Authentication で Google を有効化 → Firestore を作成（asia-northeast1）
 3. Authentication → 設定 → 承認済みドメインに `<GitHubユーザー名>.github.io` を追加
 4. `docs/config.js` に firebaseConfig を貼る
-5. `firestore.rules` の2つのメールアドレスを書き換えて、Firestore →「ルール」に貼って公開
+5. `firestore.rules` の中身を Firestore →「ルール」に貼って公開
 6. 2人ともアプリを開いて Google でログイン。旅行の ⚙️ →「共有するGoogleアカウント」に相手のメールを入れると共有されます
