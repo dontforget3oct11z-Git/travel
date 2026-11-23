@@ -2,7 +2,7 @@
 export const singaporeSeed = {
  "trip": {
   "name": "シンガポール（D23 Asia）",
-  "emoji": "🇸🇬",
+  "icon": "plane",
   "destination": "シンガポール",
   "seed": "sg-2027",
   "startDate": "2027-06-24",

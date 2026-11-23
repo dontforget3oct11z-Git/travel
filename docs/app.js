@@ -1,4 +1,5 @@
 import { createStore } from './store.js';
+import { ic } from './icons.js';
 
 // ================= 基本 =================
 const $ = (s, el = document) => el.querySelector(s);
@@ -51,39 +52,44 @@ function dateRange(start, end) {
 // フィールド: [key, ラベル, 型, 必須/選択肢]
 const KINDS = {
   plan: {
-    label: '旅程', icon: '🗓', noun: '予定',  add: '予定を追加',
+    label: '旅程', icon: 'calendar-days', noun: '予定',  add: '予定を追加',
     fields: [['date', '日付', 'date'], ['time', '開始', 'time'], ['endTime', '終了', 'time'], ['title', '予定', 'text', true],
       ['place', '場所', 'text'], ['amount', '費用の目安', 'money'], ['memo', 'メモ', 'textarea'], ['link', 'リンク', 'url']],
   },
   booking: {
-    label: '予約', icon: '🎫', noun: '予約',  add: '予約を追加',
+    label: '予約', icon: 'ticket', noun: '予約',  add: '予約を追加',
     fields: [['category', '種類', 'select', ['航空券', 'ホテル', 'チケット', '交通', 'ツアー', 'レストラン', 'その他']], ['title', '名前', 'text', true],
       ['date', '日付', 'date'], ['time', '時刻', 'time'], ['endDate', '終了日（ホテル等）', 'date'], ['confNo', '予約番号', 'text'],
       ['amount', '金額', 'money'], ['paid', '支払い', 'select', ['未払い', '支払い済み', '現地払い']], ['link', 'リンク', 'url'], ['memo', 'メモ', 'textarea']],
   },
   todo: {
-    label: 'やること', icon: '✅', noun: 'やること',  add: 'やることを追加',
+    label: 'やること', icon: 'list-checks', noun: 'やること',  add: 'やることを追加',
     fields: [['title', 'やること', 'text', true], ['due', '期限', 'date'], ['who', '担当', 'person+both'],
       ['category', '分類', 'select', ['準備', '予約', '手続き', '持ち物', '現地', 'その他']], ['memo', 'メモ', 'textarea'], ['link', 'リンク', 'url']],
   },
   expense: {
-    label: '費用', icon: '💰', noun: '支出',  add: '支出を追加',
+    label: '費用', icon: 'wallet', noun: '支出',  add: '支出を追加',
     fields: [['date', '日付', 'date'], ['title', '内容', 'text', true], ['amount', '金額', 'money', true], ['paidBy', '払った人', 'person'],
       ['split', '負担', 'select', ['2人で割る', '払った人の分']], ['category', '分類', 'select', ['食事', '交通', '宿泊', 'チケット', '観光', '買い物', 'その他']], ['memo', 'メモ', 'textarea']],
   },
   candidate: {
-    label: '比較', icon: '⚖️', noun: '候補',  add: '候補を追加',
+    label: '比較', icon: 'scale', noun: '候補',  add: '候補を追加',
     fields: [['group', 'グループ', 'select', ['航空券', 'ホテル', 'チケット', 'ツアー', 'レストラン', 'その他']], ['title', '候補名', 'text', true],
       ['status', '状態', 'select', ['候補', '◎おすすめ', '決定', '見送り']], ['price', '料金の目安（文字）', 'text'], ['amount', '料金（計算用）', 'money'],
       ['details', '詳細（「項目: 内容」を1行ずつ）', 'details'], ['link', 'リンク', 'url']],
   },
   note: {
-    label: 'メモ', icon: '📝', noun: 'メモ',  add: 'メモを追加',
+    label: 'メモ', icon: 'notebook-pen', noun: 'メモ',  add: 'メモを追加',
     fields: [['category', '分類', 'text'], ['title', 'タイトル', 'text', true], ['importance', '重要度', 'select', ['高', '中', '低']],
       ['body', '内容', 'textarea'], ['source', '信頼度・出典メモ', 'text'], ['link', 'リンク', 'url']],
   },
 };
-const TABS = [['overview', '概要', '🏠'], ['plan', '旅程', '🗓'], ['booking', '予約', '🎫'], ['todo', 'やること', '✅'], ['expense', '費用', '💰'], ['candidate', '比較', '⚖️'], ['note', 'メモ', '📝']];
+const TABS = [['overview', '概要', 'house'], ['plan', '旅程', 'calendar-days'], ['booking', '予約', 'ticket'], ['todo', 'やること', 'list-checks'], ['expense', '費用', 'wallet'], ['candidate', '比較', 'scale'], ['note', 'メモ', 'notebook-pen']];
+// 種類ごとの線アイコン
+const CAT_ICONS = { 航空券: 'plane', ホテル: 'bed-double', 宿泊: 'bed-double', チケット: 'ticket', 交通: 'train-front', ツアー: 'map', レストラン: 'utensils-crossed', 食事: 'utensils-crossed', 観光: 'camera', 買い物: 'shopping-bag' };
+const catIcon = (c, size = 18) => `<span class="cat-ic">${ic(CAT_ICONS[c] || 'ellipsis', size)}</span>`;
+const TRIP_ICONS = [['plane', '飛行機'], ['train-front', '電車'], ['luggage', 'スーツケース'], ['map', '地図']];
+const tripIcon = (t) => (TRIP_ICONS.some(([k]) => k === t.icon) ? t.icon : t.currency && t.currency !== 'JPY' ? 'plane' : 'luggage');
 
 // ================= 状態 =================
 const S = { store: null, user: null, trips: [], items: [], tripId: null, tab: 'overview', unsubTrips: null, unsubItems: null, filter: {}, error: '', cmpView: (() => { try { return localStorage.getItem('cmpView'); } catch { return null; } })() };
@@ -148,7 +154,7 @@ function render() {
 
 function renderLogin() {
   app.innerHTML = `<div class="login">
-    <div class="logo">✈️</div><h1>ふたりの旅ノート</h1>
+    <div class="logo">${ic('plane', 34)}</div><h1>ふたりの旅ノート</h1>
     <p class="muted">2人で同じ旅行の予定・予約・費用を共有できます</p>
     <button class="btn primary big" id="signin">Googleでログイン</button>
     <p class="err" id="loginErr"></p></div>`;
@@ -166,16 +172,16 @@ function renderHome() {
     const d = t.startDate ? daysBetween(today, t.startDate) : null;
     const badge = d == null ? '' : d > 0 ? `あと${d}日` : t.endDate >= today ? '旅行中' : '';
     return `<a class="trip-card" href="#/trip/${esc(t.id)}">
-      <div class="trip-emoji">${esc(t.emoji || '🧳')}</div>
+      <div class="trip-ic">${ic(tripIcon(t), 24)}</div>
       <div class="grow"><div class="trip-name">${esc(t.name)}</div>
-      <div class="muted small">${esc(t.destination || '')} ${t.startDate ? '・' + fmtDate(t.startDate, true) + '〜' + fmtDate(t.endDate) : ''}</div></div>
+      <div class="muted small">${[esc(t.destination || ''), t.startDate ? fmtDate(t.startDate, true) + '〜' + fmtDate(t.endDate) : ''].filter(Boolean).join(' ・ ')}</div></div>
       ${badge ? `<span class="badge">${badge}</span>` : ''}</a>`;
   };
-  return `<header class="home-head"><h1>✈️ ふたりの旅ノート</h1>
+  return `<header class="home-head"><h1 class="row"><span class="brand-ic">${ic('plane', 18)}</span>ふたりの旅ノート</h1>
       <div class="muted small">${esc(S.user.name)}${S.store.mode === 'cloud' ? ' ・ <button class="link" id="signout">ログアウト</button>' : ''}</div></header>
     <main class="main">
-      <div class="row gap"><button class="btn primary" id="newTrip">＋ 新しい旅行</button>
-        <label class="btn">JSONから取り込む<input type="file" id="importFile" accept="application/json,.json" hidden></label></div>
+      <div class="row gap"><button class="btn primary" id="newTrip">${ic('plus', 18)}新しい旅行</button>
+        <label class="btn">${ic('upload', 18)}JSONから取り込む<input type="file" id="importFile" accept="application/json,.json" hidden></label></div>
       ${S.trips.length === 0 ? `<div class="empty">まだ旅行がありません。<br>
         <button class="btn" id="seedSg">シンガポール旅行（2027/6 D23 Asia）のデータを取り込む</button></div>` : ''}
       ${upcoming.length ? '<h2>これからの旅行</h2>' + upcoming.map(card).join('') : ''}
@@ -207,12 +213,12 @@ async function importTrip({ trip: t, items }) {
 // ---------- 旅行のヘッダーとタブ ----------
 function renderTripHeader(t) {
   return `<header class="trip-head">
-    <div class="row"><a href="#/" class="back" aria-label="一覧へ">‹</a>
-      <div class="grow"><div class="trip-title">${esc(t.emoji || '🧳')} ${esc(t.name)}</div>
+    <div class="row"><a href="#/" class="back" aria-label="一覧へ">${ic('chevron-left', 26)}</a>
+      <div class="grow"><div class="trip-title">${esc(t.name)}</div>
       <div class="muted small">${t.startDate ? fmtDate(t.startDate, true) + '〜' + fmtDate(t.endDate) : '日程未定'}${t.currency && t.currency !== 'JPY' ? ` ・ 1${esc(CURRENCIES[t.currency]?.sym || t.currency)}≈${esc(t.rate)}円` : ''}</div></div>
-      <button class="icon-btn" id="tripSettings" aria-label="旅行の設定">⚙️</button></div>
-    <nav class="tabs">${TABS.map(([k, l, i]) => `<a href="#/trip/${esc(t.id)}/${k}" class="${S.tab === k ? 'on' : ''}">${i} ${l}</a>`).join('')}</nav>
-  </header>`;
+      <button class="icon-btn" id="tripSettings" aria-label="旅行の設定">${ic('settings-2', 22)}</button></div>
+  </header>
+  <nav class="tabbar">${TABS.map(([k, l, i]) => `<a href="#/trip/${esc(t.id)}/${k}" class="${S.tab === k ? 'on' : ''}">${ic(i, 20)}<span class="tab-label">${l}</span></a>`).join('')}</nav>`;
 }
 function renderTab(t) {
   switch (S.tab) {
@@ -237,8 +243,8 @@ function bindTrip(t) {
   app.querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => { S.cmpView = b.dataset.view; try { localStorage.setItem('cmpView', S.cmpView); } catch {} render(); }));
   app.querySelectorAll('[data-goto]').forEach((b) => (b.onclick = () => go(`#/trip/${t.id}/${b.dataset.goto}`)));
 }
-const addBtn = (kind, preset) => `<button class="fab" data-add="${kind}" ${preset ? `data-preset='${esc(JSON.stringify(preset))}'` : ''}>＋ ${KINDS[kind].add}</button>`;
-const linkOut = (u) => (safeUrl(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener" class="ext">リンク↗</a>` : '');
+const addBtn = (kind, preset) => `<button class="fab" data-add="${kind}" ${preset ? `data-preset='${esc(JSON.stringify(preset))}'` : ''}>${ic('plus', 18)}${KINDS[kind].add}</button>`;
+const linkOut = (u) => (safeUrl(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener" class="ext">リンク${ic('external-link', 14)}</a>` : '');
 const filterBar = (opts) => {
   const cur = S.filter[S.tab] || 'すべて';
   return `<div class="chips">${['すべて', ...opts].map((o) => `<button class="chip ${o === cur ? 'on' : ''}" data-filter="${esc(o)}">${esc(o)}</button>`).join('')}</div>`;
@@ -274,7 +280,7 @@ function renderOverview(t) {
       ${t.budget ? `<div class="progress ${bookTotal + expTotal > t.budget ? 'over' : ''}"><i style="width:${Math.min(100, Math.round(((bookTotal + expTotal) / t.budget) * 100))}%"></i></div>` : ''}
       <button class="link" data-goto="expense">精算を見る</button></section>
     <section class="card"><h3>決まったこと</h3>
-      ${chosen.length ? chosen.map((c) => `<div class="line" data-edit="${esc(c.id)}">✔︎ <b>${esc(c.group)}</b>：${esc(c.title)}</div>`).join('') : '<p class="muted small">比較タブで「決定」にした候補がここに出ます</p>'}</section>
+      ${chosen.length ? chosen.map((c) => `<div class="line" data-edit="${esc(c.id)}">${catIcon(c.group)}<b>${esc(c.group)}</b>：${esc(c.title)}</div>`).join('') : '<p class="muted small">比較タブで「決定」にした候補がここに出ます</p>'}</section>
     ${t.memo ? `<section class="card"><h3>旅行メモ</h3><p class="pre">${esc(t.memo)}</p></section>` : ''}`;
 }
 
@@ -282,7 +288,7 @@ function renderOverview(t) {
 function planRow(p) {
   return `<div class="item" data-edit="${esc(p.id)}"><div class="time">${esc(p.time || '')}${p.endTime ? '<br><small>〜' + esc(p.endTime) + '</small>' : ''}</div>
     <div class="grow"><div class="title">${esc(p.title)}</div>
-    ${p.place ? `<div class="small muted">📍 ${esc(p.place)}</div>` : ''}
+    ${p.place ? `<div class="small muted row">${ic('map-pin', 14)}&nbsp;${esc(p.place)}</div>` : ''}
     ${p.memo ? `<div class="small pre">${esc(p.memo)}</div>` : ''}
     <div class="small">${p.amount ? money(p.amount, p.currency, trip()) + ' ' : ''}${linkOut(p.link)}</div></div></div>`;
 }
@@ -299,14 +305,14 @@ function renderPlan(t) {
     const bs = books.filter((b) => b.date === d);
     const rows = [...ps.map((p) => ({ ...p, _t: 'p' })), ...bs.map((b) => ({ ...b, _t: 'b' }))].sort(sortT)
       .map((x) => x._t === 'p' ? planRow(x) : `<div class="item booking-in-plan" data-edit="${esc(x.id)}"><div class="time">${esc(x.time || '')}</div>
-        <div class="grow"><div class="title">🎫 ${esc(x.title)}</div><div class="small muted">${esc(x.category || '予約')}${x.confNo ? ' ・ 予約番号 ' + esc(x.confNo) : ''}</div></div></div>`).join('');
+        <div class="grow"><div class="title row">${ic('ticket', 16)}&nbsp;${esc(x.title)}</div><div class="small muted">${esc(x.category || '予約')}${x.confNo ? ' ・ 予約番号 ' + esc(x.confNo) : ''}</div></div></div>`).join('');
     return `<section class="day ${d === todayStr() ? 'today' : ''}"><div class="day-head"><b>${i >= 0 ? `${i + 1}日目` : '日程外'}</b> ${fmtDate(d)}
-      <button class="mini" data-add="plan" data-preset='${esc(JSON.stringify({ date: d }))}'>＋</button></div>
+      <button class="mini" data-add="plan" data-preset='${esc(JSON.stringify({ date: d }))}' aria-label="この日に予定を追加">${ic('plus', 16)}</button></div>
       ${rows || '<div class="muted small pad">予定なし</div>'}</section>`;
   }).join('');
   const undated = plans.filter((p) => !p.date);
   if (undated.length) html += `<section class="day"><div class="day-head"><b>日付未定・行きたい所</b></div>${undated.map(planRow).join('')}</section>`;
-  if (!all.length && !undated.length) html = '<div class="empty">⚙️ から旅行の日程を入れると、日ごとの予定表になります</div>';
+  if (!all.length && !undated.length) html = '<div class="empty">右上の設定から旅行の日程を入れると、日ごとの予定表になります</div>';
   return html + addBtn('plan');
 }
 
@@ -315,7 +321,7 @@ function renderBookings(t) {
   const list = filtered(itemsOf('booking'), 'category').sort((a, b) => (a.date || '9').localeCompare(b.date || '9') || (a.time || '').localeCompare(b.time || ''));
   const total = list.reduce((s, b) => s + (Number(b.amount) ? toYen(b.amount, b.currency, t) : 0), 0);
   return filterBar(KINDS.booking.fields[0][3]) + (list.length ? list.map((b) => `<div class="item card" data-edit="${esc(b.id)}">
-      <div class="grow"><div class="row"><span class="tag">${esc(b.category || 'その他')}</span><span class="title grow">${esc(b.title)}</span></div>
+      <div class="grow"><div class="row">${catIcon(b.category)}<span class="title grow">${esc(b.title)}</span><span class="tag">${esc(b.category || 'その他')}</span></div>
       <div class="small">${b.date ? fmtDate(b.date) + ' ' + esc(b.time || '') : '日付未定'}${b.endDate ? ' 〜 ' + fmtDate(b.endDate) : ''}</div>
       ${b.confNo ? `<div class="conf">予約番号 <b>${esc(b.confNo)}</b></div>` : ''}
       <div class="small">${money(b.amount, b.currency, t)} ${b.paid ? `<span class="tag ${b.paid === '未払い' ? 'warn' : ''}">${esc(b.paid)}</span>` : ''} ${linkOut(b.link)}</div>
@@ -373,8 +379,8 @@ function renderExpenses(t) {
       <p>${settle.length ? settle.join('<br>') : '精算は不要です（貸し借りなし）'}</p>
       ${Object.keys(byCat).length ? `<div class="cats">${Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span class="tag">${esc(k)} ${yenApprox(v)}</span>`).join('')}</div>` : ''}
     </section>
-    ${list.length ? list.map((e) => `<div class="item" data-edit="${esc(e.id)}"><div class="time small">${e.date ? fmtDate(e.date) : ''}</div>
-      <div class="grow"><div class="title">${esc(e.title)}</div><div class="small muted">${esc(e.paidBy || ps[0])}が支払い ・ ${esc(e.split || '2人で割る')}${e.category ? ' ・ ' + esc(e.category) : ''}</div></div>
+    ${list.length ? list.map((e) => `<div class="item" data-edit="${esc(e.id)}">${catIcon(e.category)}
+      <div class="grow"><div class="title">${esc(e.title)}</div><div class="small muted">${e.date ? fmtDate(e.date) + ' ・ ' : ''}${esc(e.paidBy || ps[0])}が支払い ・ ${esc(e.split || '2人で割る')}${e.category ? ' ・ ' + esc(e.category) : ''}</div></div>
       <div class="amt">${money(e.amount, e.currency, t)}</div></div>`).join('') : '<div class="empty">現地での支出を記録すると、どちらがいくら払ったか自動で精算します</div>'}
     ${addBtn('expense', { date: todayStr() >= (t.startDate || '') && todayStr() <= (t.endDate || '') ? todayStr() : '' })}`;
 }
@@ -444,7 +450,7 @@ function fieldHtml([key, label, type, opt], v, t) {
 function openSheet(title, inner, onSave, onDelete) {
   const el = document.createElement('div');
   el.className = 'sheet-bg';
-  el.innerHTML = `<form class="sheet" novalidate><div class="sheet-head"><b>${esc(title)}</b><button type="button" class="icon-btn" data-close aria-label="閉じる">✕</button></div>
+  el.innerHTML = `<form class="sheet" novalidate><div class="sheet-head"><b>${esc(title)}</b><button type="button" class="icon-btn" data-close aria-label="閉じる">${ic('x', 22)}</button></div>
     <div class="sheet-body">${inner}</div>
     <div class="sheet-foot">${onDelete ? '<button type="button" class="btn danger" data-del>削除</button>' : ''}<span class="grow"></span>
     <button type="button" class="btn" data-close>キャンセル</button><button class="btn primary">保存</button></div></form>`;
@@ -484,11 +490,11 @@ function editItem(kind, item, preset = {}) {
 }
 
 function editTrip(t) {
-  const v = t || { currency: 'JPY', rate: '', people: ['夫', '妻'], emoji: '🧳' };
+  const v = t || { currency: 'JPY', rate: '', people: ['夫', '妻'] };
   const cloud = S.store.mode === 'cloud';
   const inner = `
     <label class="field"><span>旅行の名前 *</span><input name="name" required value="${esc(v.name)}" placeholder="例：シンガポール（D23 Asia）"></label>
-    <div class="row gap"><label class="field" style="flex:0 0 5em"><span>絵文字</span><input name="emoji" value="${esc(v.emoji || '🧳')}" maxlength="4"></label>
+    <div class="row gap"><label class="field" style="flex:0 0 8em"><span>アイコン</span><select name="icon">${TRIP_ICONS.map(([k, l]) => `<option value="${k}" ${k === tripIcon(v) ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     <label class="field grow"><span>行き先</span><input name="destination" value="${esc(v.destination)}"></label></div>
     <div class="row gap"><label class="field grow"><span>出発日</span><input type="date" name="startDate" value="${esc(v.startDate)}"></label>
     <label class="field grow"><span>帰着日</span><input type="date" name="endDate" value="${esc(v.endDate)}"></label></div>
@@ -501,7 +507,7 @@ function editTrip(t) {
     ${t ? `<div class="row gap"><button type="button" class="btn" id="exportJson">バックアップ（JSON）を保存</button></div>` : ''}`;
   openSheet(t ? '旅行の設定' : '新しい旅行', inner, async (fd) => {
     const data = {
-      name: fd.name.trim(), emoji: fd.emoji.trim() || '🧳', destination: fd.destination.trim(), startDate: fd.startDate, endDate: fd.endDate || fd.startDate,
+      name: fd.name.trim(), icon: fd.icon, destination: fd.destination.trim(), startDate: fd.startDate, endDate: fd.endDate || fd.startDate,
       currency: fd.currency, rate: fd.currency === 'JPY' ? 1 : Number(fd.rate) || '', budget: Number(fd.budget) || '', memo: fd.memo,
       people: fd.people.split(/[,、，]/).map((s) => s.trim()).filter(Boolean),
     };

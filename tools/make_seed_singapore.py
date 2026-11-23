@@ -115,7 +115,7 @@ for d, tm, t, place, memo in plans:
     items.append({'kind': 'plan', 'date': d, 'time': tm, 'title': t, 'place': place, 'memo': memo, 'link': ''})
 
 trip = {
-    'name': 'シンガポール（D23 Asia）', 'emoji': '🇸🇬', 'destination': 'シンガポール', 'seed': 'sg-2027',
+    'name': 'シンガポール（D23 Asia）', 'icon': 'plane', 'destination': 'シンガポール', 'seed': 'sg-2027',
     'startDate': '2027-06-24', 'endDate': '2027-06-28', 'currency': 'SGD', 'rate': 123, 'budget': '',
     'people': ['夫', '妻'],
     'memo': 'D23 Asia（2027/6/25〜27・マリーナ・ベイ・サンズ）。6/25 新作発表と 6/27 コンサートに参加。\n円換算は 1S$≈123円（2026/11時点の目安）。料金は2026/11時点の目安で、実際の6月料金は要確認。',
