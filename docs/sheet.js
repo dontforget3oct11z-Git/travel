@@ -68,3 +68,14 @@ export function parseTab(values) {
   header = header.map((h, k) => h || (body.some((r) => r[k]) ? `列${k + 1}` : ''));
   return { pre, header, body, post };
 }
+
+// Googleカレンダーに予定を書く／消す（Apps Script の doPost）
+export async function calendar(cfg, payload) {
+  // text/plain で送ると、ブラウザの事前確認（プリフライト）なしで送れる
+  const res = await fetch(cfg.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: cfg.key, calendar: cfg.calName || undefined, ...payload }), redirect: 'follow' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  if (data.error === 'forbidden') throw new Error('合言葉が違います');
+  if (data.error) throw new Error(data.error);
+  return data;
+}

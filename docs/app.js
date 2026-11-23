@@ -15,6 +15,9 @@ const CURRENCIES = {
   TWD: { sym: 'NT$', name: '台湾ドル' }, HKD: { sym: 'HK$', name: '香港ドル' }, THB: { sym: '฿', name: 'タイバーツ' },
   AUD: { sym: 'A$', name: '豪ドル' }, CNY: { sym: '元', name: '人民元' }, VND: { sym: '₫', name: 'ベトナムドン' },
 };
+const TIMEZONES = [['Asia/Tokyo', '日本'], ['Asia/Singapore', 'シンガポール'], ['Asia/Seoul', '韓国'], ['Asia/Shanghai', '中国'], ['Asia/Hong_Kong', '香港'], ['Asia/Taipei', '台湾'], ['Asia/Bangkok', 'タイ・ベトナム'], ['Europe/London', 'イギリス'], ['Europe/Paris', 'フランス・ヨーロッパ中部'], ['America/Los_Angeles', 'アメリカ西海岸'], ['America/New_York', 'アメリカ東海岸'], ['Pacific/Honolulu', 'ハワイ'], ['Australia/Sydney', 'オーストラリア東部']];
+const CUR_TZ = { JPY: 'Asia/Tokyo', SGD: 'Asia/Singapore', KRW: 'Asia/Seoul', CNY: 'Asia/Shanghai', HKD: 'Asia/Hong_Kong', TWD: 'Asia/Taipei', THB: 'Asia/Bangkok', VND: 'Asia/Bangkok', GBP: 'Europe/London', EUR: 'Europe/Paris', AUD: 'Australia/Sydney' };
+const tripTz = (t) => t.timezone || CUR_TZ[t.currency] || 'Asia/Tokyo';
 const num = (n) => Number(n).toLocaleString('ja-JP', { maximumFractionDigits: 2 });
 function yenApprox(yen) {
   if (!isFinite(yen)) return '';
@@ -311,7 +314,7 @@ function renderOverview(t) {
 // ---------- 旅程 ----------
 function planRow(p) {
   return `<div class="item" data-edit="${esc(p.id)}"><div class="time">${p.time ? `<span class="tpill">${esc(p.time)}</span>` : ''}</div>
-    <div class="grow"><div class="title">${esc(p.title)}</div>
+    <div class="grow"><div class="title">${esc(p.title)}${p.calEventId ? `<span class="cal-on" title="Googleカレンダーに登録済み">${ic('calendar-days', 13)}</span>` : ''}</div>
     ${p.place ? `<div class="small muted row">${ic('map-pin', 14)}&nbsp;${esc(p.place)}</div>` : ''}
     ${p.memo ? `<div class="small muted clamp">${esc(p.memo)}</div>` : ''}
     ${p.amount || safeUrl(p.link) ? `<div class="small">${p.amount ? money(p.amount, p.currency, trip()) + ' ' : ''}${linkOut(p.link)}</div>` : ''}</div></div>`;
@@ -510,9 +513,11 @@ function editItem(kind, item, preset = {}) {
           out[k] = Object.fromEntries((fd[k] || '').split('\n').map((l) => l.match(/^(.*?)[:：]\s*(.*)$/)).filter((m) => m && m[1].trim()).map((m) => [m[1].trim(), m[2].trim()]));
         } else out[k] = (fd[k] ?? '').trim();
       });
-      if (item) await S.store.updateItem(t.id, item.id, out); else await S.store.addItem(t.id, { ...out, done: false });
+      let id = item?.id;
+      if (item) await S.store.updateItem(t.id, item.id, out); else id = await S.store.addItem(t.id, { ...out, done: false });
+      if (kind === 'plan') await calSync(t, id, out, item?.calEventId);
     },
-    item ? () => S.store.deleteItem(t.id, item.id) : null);
+    item ? async () => { if (item.kind === 'plan' && item.calEventId) await calSync(t, item.id, null, item.calEventId); await S.store.deleteItem(t.id, item.id); } : null);
 }
 
 function editTrip(t) {
@@ -526,6 +531,7 @@ function editTrip(t) {
     <label class="field grow"><span>帰着日</span><input type="date" name="endDate" value="${esc(v.endDate)}"></label></div>
     <div class="row gap"><label class="field grow"><span>現地通貨</span><select name="currency">${Object.entries(CURRENCIES).map(([c, x]) => `<option value="${c}" ${c === v.currency ? 'selected' : ''}>${x.sym} ${x.name}</option>`).join('')}</select></label>
     <label class="field grow"><span>1単位＝何円（目安）</span><input type="number" step="any" name="rate" value="${esc(v.rate)}" placeholder="例：123"></label></div>
+    <label class="field"><span>現地の時間帯（カレンダーの時刻に使います）</span><select name="timezone">${TIMEZONES.map(([z, l]) => `<option value="${z}" ${z === tripTz(v) ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     <label class="field"><span>予算（円・2人分）</span><input type="number" name="budget" value="${esc(v.budget)}"></label>
     <label class="field"><span>旅行する人（カンマ区切り）</span><input name="people" value="${esc(people(v).join(', '))}"></label>
     ${cloud ? `<label class="field"><span>共有するGoogleアカウント（メール、カンマ区切り）</span><input name="members" value="${esc((v.members || []).join(', '))}" placeholder="相手のメールアドレス"></label>` : ''}
@@ -535,7 +541,7 @@ function editTrip(t) {
   openSheet(t ? '旅行の設定' : '新しい旅行', inner, async (fd) => {
     const data = {
       name: fd.name.trim(), icon: fd.icon, destination: fd.destination.trim(), startDate: fd.startDate, endDate: fd.endDate || fd.startDate,
-      currency: fd.currency, rate: fd.currency === 'JPY' ? 1 : Number(fd.rate) || '', budget: Number(fd.budget) || '', memo: fd.memo,
+      currency: fd.currency, rate: fd.currency === 'JPY' ? 1 : Number(fd.rate) || '', budget: Number(fd.budget) || '', memo: fd.memo, timezone: fd.timezone,
       people: fd.people.split(/[,、，]/).map((s) => s.trim()).filter(Boolean),
     };
     if (cloud) {
@@ -660,6 +666,8 @@ function editSheetLink(t) {
     <label class="field"><span>連携URL（Apps Script のウェブアプリURL）</span><input name="url" type="url" value="${esc(cfg.url)}" placeholder="https://script.google.com/macros/s/…/exec"></label>
     <label class="field"><span>合言葉</span><input name="key" value="${esc(cfg.key)}" autocomplete="off"></label>
     <label class="field"><span>シートでの旅行先名（1列目が「旅行先」の共通タブを、この名前の行で絞り込みます）</span><input name="place" value="${esc(cfg.place || t.destination || '')}" placeholder="例：シンガポール"></label>
+    <label class="check"><input type="checkbox" name="cal" ${cfg.calendar ? 'checked' : ''}> 旅程をGoogleカレンダーに自動で反映する</label>
+    <label class="field"><span>カレンダーの名前</span><input name="calName" value="${esc(cfg.calName || 'ふたりの旅ノート')}"></label>
     <button type="button" class="btn" id="loadTabs">${ic('sheet', 18)}タブ一覧を読み込む</button>
     <p class="small err" id="tabsErr"></p>
     <div id="tabPick">${cfg.allTabs?.length ? pickHtml(cfg.allTabs) : ''}</div>`;
@@ -670,9 +678,10 @@ function editSheetLink(t) {
   let allTabs = cfg.allTabs || [];
   openSheet('スプレッドシート連携', inner, async (fd, form) => {
     const pick = (w) => [...form.querySelectorAll(`input[name="${w}"]:checked`)].map((i) => i.value);
-    const sheet = { url: fd.url.trim(), key: fd.key.trim(), place: fd.place.trim(), compare: pick('compare'), notes: pick('notes'), allTabs };
+    const sheet = { url: fd.url.trim(), key: fd.key.trim(), place: fd.place.trim(), compare: pick('compare'), notes: pick('notes'), allTabs, calendar: !!form.cal.checked, calName: fd.calName.trim() || 'ふたりの旅ノート' };
     await S.store.updateTrip(t.id, { sheet });
     S.sheetErr = '';
+    if (sheet.calendar && sheet.url) calSyncAll({ ...t, sheet });
     loadSheet({ ...t, sheet }, true);
   }, cfg.url ? async () => { await S.store.updateTrip(t.id, { sheet: null }); } : null, '連携を解除');
   document.getElementById('loadTabs').onclick = async () => {
@@ -697,4 +706,39 @@ function editSheetLink(t) {
       err.textContent = `「${res.title}」のタブを${allTabs.length}個読み込みました`;
     } catch (e) { err.textContent = '読み込めませんでした：' + e.message; }
   };
+}
+
+// ================= Googleカレンダー連携 =================
+const calOn = (t) => !!(t.sheet?.calendar && t.sheet?.url && t.sheet?.key);
+function calEvent(t, p) {
+  const desc = [p.memo, safeUrl(p.link) ? p.link : '', `（${t.name}・ふたりの旅ノート）`].filter(Boolean).join('\n');
+  return { title: p.title, date: p.date, time: p.time || '', endTime: p.endTime || '', place: p.place || '', description: desc, tz: tripTz(t) };
+}
+// 予定1件をカレンダーへ。p が null なら削除
+async function calSync(t, id, p, oldEventId) {
+  if (!calOn(t)) return;
+  try {
+    if (!p || !p.date) {
+      if (oldEventId) await Sheet.calendar(t.sheet, { action: 'delete', id: oldEventId });
+      if (p) await S.store.updateItem(t.id, id, { calEventId: '' });
+      return;
+    }
+    const res = await Sheet.calendar(t.sheet, { action: 'upsert', id: oldEventId || '', event: calEvent(t, p) });
+    await S.store.updateItem(t.id, id, { calEventId: res.id });
+  } catch (e) {
+    console.error(e);
+    toast('Googleカレンダーに反映できませんでした：' + e.message);
+  }
+}
+// まだ登録していない旅程をまとめて登録
+async function calSyncAll(t) {
+  const list = S.items.filter((i) => i.kind === 'plan' && i.date && !i.calEventId);
+  if (!list.length) return;
+  toast(`旅程${list.length}件をGoogleカレンダーに登録しています…`);
+  let ok = 0;
+  for (const p of list) {
+    try { const res = await Sheet.calendar(t.sheet, { action: 'upsert', event: calEvent(t, p) }); await S.store.updateItem(t.id, p.id, { calEventId: res.id }); ok++; }
+    catch (e) { console.error(e); toast('Googleカレンダーに登録できませんでした：' + e.message); return; }
+  }
+  toast(`旅程${ok}件をGoogleカレンダーに登録しました`);
 }

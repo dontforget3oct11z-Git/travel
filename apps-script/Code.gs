@@ -86,3 +86,42 @@ function write_(ss, name, rows) {
   sh.setFrozenRows(1); sh.setFrozenColumns(2);
   sh.setColumnWidths(1, header.length, 180); sh.setColumnWidth(1, 110);
 }
+
+// ---------- Googleカレンダー連携（アプリの「旅程」を書き込む） ----------
+const CAL_NAME = 'ふたりの旅ノート';
+
+// 初回だけ実行：カレンダーを作り、カレンダーへの書き込みを許可する
+function setupCalendar() {
+  const cal = getCal_(CAL_NAME);
+  SpreadsheetApp.getUi().alert('カレンダー「' + cal.getName() + '」を用意しました。Googleカレンダーの設定から相手と共有できます。');
+}
+
+function getCal_(name) {
+  return CalendarApp.getCalendarsByName(name)[0] || CalendarApp.createCalendar(name, { color: CalendarApp.Color.TEAL });
+}
+
+function doPost(e) {
+  let b;
+  try { b = JSON.parse(e.postData.contents); } catch (err) { return json_({ error: 'bad request' }); }
+  if (!KEY || KEY === 'ここに合言葉' || b.key !== KEY) return json_({ error: 'forbidden' });
+  const cal = getCal_(b.calendar || CAL_NAME);
+  // 変更は「前の予定を消して作り直す」。終日⇄時刻ありの切り替えも同じ扱いにできる
+  if (b.id) {
+    try { const old = cal.getEventById(b.id); if (old) old.deleteEvent(); } catch (err) { /* すでに消えている */ }
+  }
+  if (b.action === 'delete') return json_({ ok: true });
+  const ev = b.event || {};
+  if (!ev.date || !ev.title) return json_({ error: 'date and title are required' });
+  const opts = { location: ev.place || '', description: ev.description || '' };
+  let created;
+  if (ev.time) {
+    const tz = ev.tz || Session.getScriptTimeZone();
+    const start = Utilities.parseDate(ev.date + ' ' + ev.time, tz, 'yyyy-MM-dd HH:mm');
+    let end = ev.endTime ? Utilities.parseDate(ev.date + ' ' + ev.endTime, tz, 'yyyy-MM-dd HH:mm') : new Date(start.getTime() + 60 * 60 * 1000);
+    if (end <= start) end = new Date(end.getTime() + 24 * 60 * 60 * 1000); // 日をまたぐ予定
+    created = cal.createEvent(ev.title, start, end, opts);
+  } else {
+    created = cal.createAllDayEvent(ev.title, Utilities.parseDate(ev.date, Session.getScriptTimeZone(), 'yyyy-MM-dd'), opts);
+  }
+  return json_({ id: created.getId() });
+}
