@@ -223,7 +223,7 @@ function renderTripHeader(t) {
     <div class="row"><a href="#/" class="back" aria-label="一覧へ">${ic('chevron-left', 26)}</a>
       <div class="grow"><div class="trip-title">${esc(t.name)}</div>
       <div class="muted small">${t.startDate ? fmtDate(t.startDate, true) + '〜' + fmtDate(t.endDate) : '日程未定'}${t.currency && t.currency !== 'JPY' ? ` ・ 1${esc(CURRENCIES[t.currency]?.sym || t.currency)}≈${esc(t.rate)}円` : ''}</div></div>
-      <button class="icon-btn" id="tripSettings" aria-label="旅行の設定">${ic('settings-2', 22)}</button></div>
+      <button class="set-btn" id="tripSettings">${ic('settings', 20)}<span>設定</span></button></div>
   </header>
   <nav class="tabbar">${TABS.map(([k, l, i]) => `<a href="#/trip/${esc(t.id)}/${k}" class="${S.tab === k ? 'on' : ''}">${ic(i, 20)}<span class="tab-label">${l}</span></a>`).join('')}</nav>`;
 }
