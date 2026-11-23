@@ -95,6 +95,14 @@ table.cmp{border-collapse:collapse;font-size:.82rem;min-width:100%}
 .cmp .sticky{position:sticky;left:0;background:var(--card);z-index:1;min-width:8rem;box-shadow:1px 0 0 var(--line)}
 .cmp thead .sticky{background:var(--bg);z-index:2}
 .cmp tr{cursor:pointer}
+.sheetlike tr{cursor:default}
+.sheetlike th,.sheetlike td{border:1px solid var(--line);min-width:6.5rem;max-width:18rem;font-size:.8rem;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.sheetlike thead th{background:var(--accent-soft);color:var(--ink);white-space:normal}
+.sheetlike .narrow{min-width:4.5rem}
+.sheetlike .num{text-align:right;white-space:nowrap}
+.sheetlike tbody tr:nth-child(even) td{background:color-mix(in srgb,var(--bg) 60%,var(--card))}
+.sheetlike tbody tr:nth-child(even) td.sticky{background:color-mix(in srgb,var(--bg) 60%,var(--card))}
+.sheetlike td.sticky{font-weight:600}
 .cmp tr.st-決定 .sticky,.cmp tr.st-決定 td{background:var(--accent-soft)}
 .cmp tr.st-見送り{opacity:.5}
 .note.imp-高{border-left:4px solid var(--warn)}.note.imp-低{opacity:.8}

@@ -96,7 +96,7 @@ const TRIP_ICONS = [['plane', '飛行機'], ['train-front', '電車'], ['luggage
 const tripIcon = (t) => (TRIP_ICONS.some(([k]) => k === t.icon) ? t.icon : t.currency && t.currency !== 'JPY' ? 'plane' : 'luggage');
 
 // ================= 状態 =================
-const S = { store: null, user: null, trips: [], items: [], tripId: null, tab: 'overview', unsubTrips: null, unsubItems: null, filter: {}, error: '', cmpView: (() => { try { return localStorage.getItem('cmpView'); } catch { return null; } })() };
+const S = { store: null, user: null, trips: [], items: [], tripId: null, tab: 'overview', unsubTrips: null, unsubItems: null, filter: {}, error: '', cmpView: (() => { try { return localStorage.getItem('cmpView'); } catch { return null; } })(), sheetView: (() => { try { return localStorage.getItem('sheetView'); } catch { return null; } })() };
 const trip = () => S.trips.find((t) => t.id === S.tripId);
 const people = (t = trip()) => (t?.people?.length ? t.people : ['夫', '妻']);
 const itemsOf = (kind) => S.items.filter((i) => i.kind === kind);
@@ -114,9 +114,11 @@ const itemsOf = (kind) => S.items.filter((i) => i.kind === kind);
       S.error = '';
       S.trips = list.sort((a, b) => (a.startDate || '9').localeCompare(b.startDate || '9'));
       route();
+      if (trip() && S.items.length) calPull(trip());
     }, onErr('旅行の一覧'));
   });
   window.addEventListener('hashchange', route);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && trip()) calPull(trip()); });
   window.addEventListener('online', render); window.addEventListener('offline', render);
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
@@ -133,7 +135,8 @@ function route() {
   if (page === 'trip' && id) {
     if (S.tripId !== id) {
       S.unsubItems?.(); S.items = []; S.tripId = id;
-      S.unsubItems = S.store.watchItems(id, (list) => { S.error = ''; S.items = list; render(); }, onErr('旅行の中身'));
+      let first = true;
+      S.unsubItems = S.store.watchItems(id, (list) => { S.error = ''; S.items = list; render(); if (first) { first = false; const t = trip(); if (t) calPull(t); } }, onErr('旅行の中身'));
     }
     S.tab = TABS.some((t) => t[0] === tab) ? tab : 'overview';
   } else {
@@ -248,9 +251,14 @@ function bindTrip(t) {
     if (e.target.closest('a,input,summary,details[open] dl,button:not([data-edit])')) return;
     const it = S.items.find((i) => i.id === b.dataset.edit); if (it) editItem(it.kind, it);
   }));
-  app.querySelectorAll('[data-done]').forEach((c) => (c.onchange = () => S.store.updateItem(t.id, c.dataset.done, { done: c.checked }).catch(fail)));
+  app.querySelectorAll('[data-done]').forEach((c) => (c.onchange = async () => {
+    const it = S.items.find((i) => i.id === c.dataset.done);
+    await S.store.updateItem(t.id, c.dataset.done, { done: c.checked }).catch(fail);
+    if (it) calSync(t, it.id, { ...it, done: c.checked }, it.calEventId);
+  }));
   app.querySelectorAll('[data-filter]').forEach((b) => (b.onclick = () => { S.filter[S.tab] = b.dataset.filter; render(); }));
   app.querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => { S.cmpView = b.dataset.view; try { localStorage.setItem('cmpView', S.cmpView); } catch {} render(); }));
+  app.querySelectorAll('[data-sview]').forEach((b) => (b.onclick = () => { S.sheetView = b.dataset.sview; try { localStorage.setItem('sheetView', S.sheetView); } catch {} render(); }));
   app.querySelectorAll('[data-sheet-link]').forEach((b) => (b.onclick = () => editSheetLink(t)));
   app.querySelectorAll('[data-sheet-refresh]').forEach((b) => (b.onclick = () => { S.sheetErr = ''; loadSheet(t, true); render(); }));
   app.querySelectorAll('[data-purge]').forEach((b) => (b.onclick = async () => {
@@ -362,7 +370,7 @@ function todoRow(i, t) {
   return `<div class="item todo ${i.done ? 'done' : ''}" data-edit="${esc(i.id)}">
     <input type="checkbox" data-done="${esc(i.id)}" ${i.done ? 'checked' : ''} aria-label="完了">
     <div class="grow"><div class="title">${esc(i.title)}</div>
-    <div class="meta">${duePill(i.due, i.done, t)}${i.who && i.who !== '2人' ? pill(esc(i.who)) : ''}${i.memo || i.link ? `<span class="more">${ic('notebook-pen', 12)}メモ</span>` : ''}</div></div></div>`;
+    <div class="meta">${duePill(i.due, i.done, t)}${i.who && i.who !== '2人' ? pill(esc(i.who)) : ''}${i.calEventId ? `<span class="cal-on" title="Googleカレンダーに登録済み">${ic('calendar-days', 13)}</span>` : ''}${i.memo || i.link ? `<span class="more">${ic('notebook-pen', 12)}メモ</span>` : ''}</div></div></div>`;
 }
 function renderTodos(t) {
   const who = ['2人', ...people(t)];
@@ -515,9 +523,9 @@ function editItem(kind, item, preset = {}) {
       });
       let id = item?.id;
       if (item) await S.store.updateItem(t.id, item.id, out); else id = await S.store.addItem(t.id, { ...out, done: false });
-      if (kind === 'plan') await calSync(t, id, out, item?.calEventId);
+      if (kind === 'plan' || kind === 'todo') await calSync(t, id, { ...item, ...out }, item?.calEventId);
     },
-    item ? async () => { if (item.kind === 'plan' && item.calEventId) await calSync(t, item.id, null, item.calEventId); await S.store.deleteItem(t.id, item.id); } : null);
+    item ? async () => { if (item.calEventId) await calSync(t, item.id, null, item.calEventId); await S.store.deleteItem(t.id, item.id); } : null);
 }
 
 function editTrip(t) {
@@ -623,21 +631,26 @@ function sheetCards(tab) {
 }
 function sheetTable(tab) {
   const { header, body } = tab;
-  return `<div class="table-wrap"><table class="cmp"><thead><tr>${header.map((h, k) => `<th class="${k === 0 ? 'sticky' : ''}">${esc(h)}</th>`).join('')}</tr></thead>
-    <tbody>${body.map((r) => `<tr>${header.map((h, k) => `<td class="${k === 0 ? 'sticky' : ''}">${cell(r[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  // スプレッドシートと同じ列・順番で表示。名前の列は横スクロールしても左に残す
+  const badgeCol = header.length > 2 && body.every((r) => (r[0] || '').length <= 10) && body.some((r) => r[1]);
+  const titleCol = badgeCol ? 1 : 0;
+  const isNum = (v) => /^[¥$S]*[\d,.]+(円|万円)?$/.test(v || '');
+  const cls = (k, v) => [k === titleCol ? 'sticky' : '', k === 0 && badgeCol ? 'narrow' : '', isNum(v) ? 'num' : ''].filter(Boolean).join(' ');
+  return `<div class="table-wrap"><table class="cmp sheetlike"><thead><tr>${header.map((h, k) => `<th class="${cls(k)}">${esc(h)}</th>`).join('')}</tr></thead>
+    <tbody>${body.map((r) => `<tr>${header.map((h, k) => `<td class="${cls(k, r[k])}">${cell(r[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 function renderSheet(t, which) {
   loadSheet(t);
   const names = t.sheet[which];
   const data = Sheet.cached(t.id);
-  const useTable = (S.cmpView || (innerWidth >= 700 ? 'table' : 'cards')) === 'table';
+  const useTable = (S.sheetView || 'table') === 'table';
   const f = S.filter[S.tab];
   const shown = names.filter((n) => !f || f === 'すべて' || shortTab(n, names) === f);
   const when = data?.fetchedAt ? new Date(data.fetchedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
   const head = `<div class="sheet-src small"><span class="grow">${ic('sheet', 16)} ${esc(data?.title || 'スプレッドシート')}${when ? ` ・ ${when} 時点` : ''}${Sheet.isLoading(t.id) ? ' ・ 更新中…' : ''}</span>
       <button class="mini wide" data-sheet-refresh>更新</button>${data?.url && safeUrl(data.url) ? `<a class="mini wide" href="${esc(data.url)}" target="_blank" rel="noopener">シートで編集</a>` : ''}</div>
     ${S.sheetErr ? `<div class="banner warn">シートを読めませんでした：${esc(S.sheetErr)}${data ? '（前回の内容を表示しています）' : ''}</div>` : ''}`;
-  const toggle = `<div class="seg"><button class="${useTable ? '' : 'on'}" data-view="cards">カード</button><button class="${useTable ? 'on' : ''}" data-view="table">表</button></div>`;
+  const toggle = `<div class="seg"><button class="${useTable ? '' : 'on'}" data-sview="cards">カード</button><button class="${useTable ? 'on' : ''}" data-sview="table">表</button></div>`;
   const bar = `<div class="row">${names.length > 1 ? `<div class="grow">${filterBar(names.map((n) => shortTab(n, names)))}</div>` : '<span class="grow"></span>'}${toggle}</div>`;
   let body = '';
   if (!data) body = `<div class="empty">${Sheet.isLoading(t.id) ? 'スプレッドシートを読み込み中…' : '「更新」を押すとスプレッドシートを読み込みます'}</div>`;
@@ -666,7 +679,7 @@ function editSheetLink(t) {
     <label class="field"><span>連携URL（Apps Script のウェブアプリURL）</span><input name="url" type="url" value="${esc(cfg.url)}" placeholder="https://script.google.com/macros/s/…/exec"></label>
     <label class="field"><span>合言葉</span><input name="key" value="${esc(cfg.key)}" autocomplete="off"></label>
     <label class="field"><span>シートでの旅行先名（1列目が「旅行先」の共通タブを、この名前の行で絞り込みます）</span><input name="place" value="${esc(cfg.place || t.destination || '')}" placeholder="例：シンガポール"></label>
-    <label class="check"><input type="checkbox" name="cal" ${cfg.calendar ? 'checked' : ''}> 旅程をGoogleカレンダーに自動で反映する</label>
+    <label class="check"><input type="checkbox" name="cal" ${cfg.calendar ? 'checked' : ''}> 旅程・やること（期限つき）をGoogleカレンダーと連携する</label>
     <label class="field"><span>カレンダーの名前</span><input name="calName" value="${esc(cfg.calName || 'ふたりの旅ノート')}"></label>
     <button type="button" class="btn" id="loadTabs">${ic('sheet', 18)}タブ一覧を読み込む</button>
     <p class="small err" id="tabsErr"></p>
@@ -709,36 +722,109 @@ function editSheetLink(t) {
 }
 
 // ================= Googleカレンダー連携 =================
+// 旅程は時刻つきの予定、やることは期限日の終日予定（完了したら消す）として、アプリ → カレンダーへ書く。
+// アプリを開くたびにカレンダー側の変更・追加・削除を読み、アプリへ取り込む（双方向）。
 const calOn = (t) => !!(t.sheet?.calendar && t.sheet?.url && t.sheet?.key);
-function calEvent(t, p) {
-  const desc = [p.memo, safeUrl(p.link) ? p.link : '', `（${t.name}・ふたりの旅ノート）`].filter(Boolean).join('\n');
-  return { title: p.title, date: p.date, time: p.time || '', endTime: p.endTime || '', place: p.place || '', description: desc, tz: tripTz(t) };
+const TODO_PREFIX = '【やること】';
+const FOOTER = (t) => `（${t.name}・ふたりの旅ノート）`;
+const nowIso = () => new Date().toISOString();
+function calEvent(t, it) {
+  const desc = [it.memo, safeUrl(it.link) ? it.link : '', FOOTER(t)].filter(Boolean).join('\n');
+  if (it.kind === 'todo') return { title: TODO_PREFIX + it.title, date: it.due, time: '', endTime: '', place: '', description: desc, tz: tripTz(t) };
+  return { title: it.title, date: it.date, time: it.time || '', endTime: it.endTime || '', place: it.place || '', description: desc, tz: tripTz(t) };
 }
-// 予定1件をカレンダーへ。p が null なら削除
-async function calSync(t, id, p, oldEventId) {
+const wantsEvent = (it) => (it.kind === 'todo' ? !!it.due && !it.done : !!it.date);
+const tagsFor = (t, it, id) => ({ tripId: t.id, kind: it.kind, itemId: id });
+// 1件をカレンダーへ。it が null なら削除
+async function calSync(t, id, it, oldEventId) {
   if (!calOn(t)) return;
   try {
-    if (!p || !p.date) {
+    if (!it || !wantsEvent(it)) {
       if (oldEventId) await Sheet.calendar(t.sheet, { action: 'delete', id: oldEventId });
-      if (p) await S.store.updateItem(t.id, id, { calEventId: '' });
+      if (it && oldEventId) await S.store.updateItem(t.id, id, { calEventId: '', calSyncedAt: nowIso() });
       return;
     }
-    const res = await Sheet.calendar(t.sheet, { action: 'upsert', id: oldEventId || '', event: calEvent(t, p) });
-    await S.store.updateItem(t.id, id, { calEventId: res.id });
+    const res = await Sheet.calendar(t.sheet, { action: 'upsert', id: oldEventId || '', event: calEvent(t, it), tags: tagsFor(t, it, id) });
+    await S.store.updateItem(t.id, id, { calEventId: res.id, calSyncedAt: res.updated || nowIso() });
   } catch (e) {
     console.error(e);
     toast('Googleカレンダーに反映できませんでした：' + e.message);
   }
 }
-// まだ登録していない旅程をまとめて登録
+// まだ登録していない旅程・やることをまとめて登録
 async function calSyncAll(t) {
-  const list = S.items.filter((i) => i.kind === 'plan' && i.date && !i.calEventId);
+  const list = S.items.filter((i) => (i.kind === 'plan' || i.kind === 'todo') && wantsEvent(i) && !i.calEventId);
   if (!list.length) return;
-  toast(`旅程${list.length}件をGoogleカレンダーに登録しています…`);
+  toast(`${list.length}件をGoogleカレンダーに登録しています…`);
   let ok = 0;
-  for (const p of list) {
-    try { const res = await Sheet.calendar(t.sheet, { action: 'upsert', event: calEvent(t, p) }); await S.store.updateItem(t.id, p.id, { calEventId: res.id }); ok++; }
-    catch (e) { console.error(e); toast('Googleカレンダーに登録できませんでした：' + e.message); return; }
+  for (const it of list) {
+    try {
+      const res = await Sheet.calendar(t.sheet, { action: 'upsert', event: calEvent(t, it), tags: tagsFor(t, it, it.id) });
+      await S.store.updateItem(t.id, it.id, { calEventId: res.id, calSyncedAt: res.updated || nowIso() }); ok++;
+    } catch (e) { console.error(e); toast('Googleカレンダーに登録できませんでした：' + e.message); return; }
   }
-  toast(`旅程${ok}件をGoogleカレンダーに登録しました`);
+  toast(`${ok}件をGoogleカレンダーに登録しました`);
+}
+
+// カレンダーの説明文から、メモとリンクを取り出す
+function parseDesc(t, d) {
+  const lines = String(d || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').split('\n').map((l) => l.trim());
+  const body = lines.filter((l) => l && !/・ふたりの旅ノート）$/.test(l));
+  const link = body.find((l) => /^https?:\/\/\S+$/.test(l)) || '';
+  return { memo: body.filter((l) => l !== link).join('\n'), link };
+}
+const pulling = {};
+async function calPull(t, { force = false } = {}) {
+  if (!calOn(t) || !navigator.onLine) return;
+  const last = pulling[t.id];
+  if (last && (last === 'busy' || (!force && Date.now() - last < 60000))) return;
+  pulling[t.id] = 'busy';
+  try {
+    const mine = S.items.filter((i) => i.kind === 'plan' || i.kind === 'todo');
+    const dates = [todayStr(), t.startDate, ...mine.map((i) => i.date || i.due)].filter(Boolean).sort();
+    const from = dates[0]; const to = [t.endDate || t.startDate || todayStr(), ...dates].sort().pop();
+    const { events } = await Sheet.calendarEvents(t.sheet, { from, to, tz: tripTz(t) });
+    const byId = new Map(events.map((e) => [e.id, e]));
+    let changed = 0;
+    // 取り違え防止：結びついた予定の半分以上が見つからないときは、削除の取り込みをしない（カレンダー名の変更など）
+    const linked = mine.filter((i) => i.calEventId && wantsEvent(i));
+    const missing = linked.filter((i) => !byId.has(i.calEventId)).length;
+    const allowDelete = linked.length < 4 ? missing <= 1 || missing < linked.length : missing <= linked.length / 2;
+    // 1) アプリの項目と結びついた予定：変更を取り込む／カレンダーで消されたら項目も消す
+    for (const it of mine) {
+      if (!it.calEventId) continue;
+      const ev = byId.get(it.calEventId);
+      if (!ev) {
+        // 予定の日付が取得範囲の外なら判断しない
+        const d = it.kind === 'todo' ? it.due : it.date;
+        if (allowDelete && d && d >= from && d <= to && wantsEvent(it)) { await S.store.deleteItem(t.id, it.id); changed++; }
+        continue;
+      }
+      byId.delete(it.calEventId);
+      if (it.calSyncedAt && new Date(ev.updated) <= new Date(new Date(it.calSyncedAt).getTime() + 2000)) continue;
+      const { memo, link } = parseDesc(t, ev.description);
+      const patch = it.kind === 'todo'
+        ? { title: ev.title.replace(TODO_PREFIX, '').trim(), due: ev.date, memo, link }
+        : { title: ev.title, date: ev.date, time: ev.time, endTime: ev.endTime, place: ev.location, memo, link };
+      await S.store.updateItem(t.id, it.id, { ...patch, calSyncedAt: ev.updated }); changed++;
+    }
+    // 2) カレンダーで新しく作られた予定：この旅行の期間内なら旅程（【やること】付きならやること）として取り込む
+    const fresh = [...byId.values()].filter((ev) => !ev.itemId && !ev.tripId && ev.date >= (t.startDate || '9') && ev.date <= (t.endDate || t.startDate || ''));
+    const tagged = [];
+    for (const ev of fresh) {
+      const { memo, link } = parseDesc(t, ev.description);
+      const isTodo = ev.title.startsWith(TODO_PREFIX);
+      const it = isTodo
+        ? { kind: 'todo', title: ev.title.replace(TODO_PREFIX, '').trim(), due: ev.date, who: '2人', memo, link, done: false }
+        : { kind: 'plan', title: ev.title, date: ev.date, time: ev.time, endTime: ev.endTime, place: ev.location, memo, link };
+      const id = await S.store.addItem(t.id, { ...it, calEventId: ev.id, calSyncedAt: ev.updated });
+      tagged.push({ id: ev.id, tags: tagsFor(t, it, id) }); changed++;
+    }
+    if (tagged.length) await Sheet.calendar(t.sheet, { action: 'tag', items: tagged });
+    if (changed) toast(`Googleカレンダーの変更を${changed}件取り込みました`);
+  } catch (e) {
+    console.error(e);
+  } finally {
+    pulling[t.id] = Date.now();
+  }
 }

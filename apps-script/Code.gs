@@ -18,6 +18,7 @@ function doGet(e) {
   const p = e.parameter || {};
   if (!KEY || KEY === 'ここに合言葉' || p.key !== KEY) return json_({ error: 'forbidden' });
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (p.action === 'events') return json_(listEvents_(p));
   if (p.action === 'tabs') {
     return json_({ title: ss.getName(), url: ss.getUrl(), tabs: ss.getSheets().map((s) => s.getName()) });
   }
@@ -110,6 +111,11 @@ function doPost(e) {
     try { const old = cal.getEventById(b.id); if (old) old.deleteEvent(); } catch (err) { /* すでに消えている */ }
   }
   if (b.action === 'delete') return json_({ ok: true });
+  if (b.action === 'tag') {
+    // カレンダーで直接作られた予定に、アプリ側の項目の印を付ける
+    (b.items || []).forEach((x) => { try { setTags_(cal.getEventById(x.id), x.tags); } catch (err) {} });
+    return json_({ ok: true });
+  }
   const ev = b.event || {};
   if (!ev.date || !ev.title) return json_({ error: 'date and title are required' });
   const opts = { location: ev.place || '', description: ev.description || '' };
@@ -123,5 +129,34 @@ function doPost(e) {
   } else {
     created = cal.createAllDayEvent(ev.title, Utilities.parseDate(ev.date, Session.getScriptTimeZone(), 'yyyy-MM-dd'), opts);
   }
-  return json_({ id: created.getId() });
+  setTags_(created, b.tags);
+  return json_({ id: created.getId(), updated: created.getLastUpdated().toISOString() });
+}
+
+function setTags_(ev, tags) {
+  if (!ev || !tags) return;
+  Object.keys(tags).forEach((k) => ev.setTag(k, String(tags[k] || '')));
+}
+
+// カレンダーの予定を一覧で返す（アプリが、カレンダー側で変更・追加・削除された予定を取り込むため）
+function listEvents_(p) {
+  const cal = getCal_(p.calendar || CAL_NAME);
+  const tz = p.tz || Session.getScriptTimeZone();
+  const from = Utilities.parseDate(p.from, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const to = new Date(Utilities.parseDate(p.to, Session.getScriptTimeZone(), 'yyyy-MM-dd').getTime() + 2 * 24 * 60 * 60 * 1000);
+  const events = cal.getEvents(from, to).map((ev) => {
+    const allDay = ev.isAllDayEvent();
+    const start = allDay ? ev.getAllDayStartDate() : ev.getStartTime();
+    const zone = allDay ? Session.getScriptTimeZone() : tz;
+    return {
+      id: ev.getId(), title: ev.getTitle(), allDay: allDay,
+      date: Utilities.formatDate(start, zone, 'yyyy-MM-dd'),
+      time: allDay ? '' : Utilities.formatDate(ev.getStartTime(), tz, 'HH:mm'),
+      endTime: allDay ? '' : Utilities.formatDate(ev.getEndTime(), tz, 'HH:mm'),
+      location: ev.getLocation(), description: ev.getDescription(),
+      updated: ev.getLastUpdated().toISOString(),
+      tripId: ev.getTag('tripId') || '', kind: ev.getTag('kind') || '', itemId: ev.getTag('itemId') || '',
+    };
+  });
+  return { events: events };
 }

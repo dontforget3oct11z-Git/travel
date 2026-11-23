@@ -79,3 +79,8 @@ export async function calendar(cfg, payload) {
   if (data.error) throw new Error(data.error);
   return data;
 }
+
+// カレンダーの予定一覧（カレンダー側の変更をアプリに取り込む用）
+export async function calendarEvents(cfg, { from, to, tz }) {
+  return call(cfg, { action: 'events', calendar: cfg.calName || '', from, to, tz });
+}
