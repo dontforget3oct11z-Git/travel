@@ -1,5 +1,6 @@
 import { createStore } from './store.js';
 import { ic } from './icons.js';
+import * as Sheet from './sheet.js';
 
 // ================= 基本 =================
 const $ = (s, el = document) => el.querySelector(s);
@@ -232,8 +233,8 @@ function renderTab(t) {
     case 'booking': return renderBookings(t);
     case 'todo': return renderTodos(t);
     case 'expense': return renderExpenses(t);
-    case 'candidate': return renderCandidates(t);
-    case 'note': return renderNotes(t);
+    case 'candidate': return t.sheet?.compare?.length ? renderSheet(t, 'compare') : renderCandidates(t);
+    case 'note': return t.sheet?.notes?.length ? renderSheet(t, 'notes') : renderNotes(t);
     default: return renderOverview(t);
   }
 }
@@ -247,6 +248,13 @@ function bindTrip(t) {
   app.querySelectorAll('[data-done]').forEach((c) => (c.onchange = () => S.store.updateItem(t.id, c.dataset.done, { done: c.checked }).catch(fail)));
   app.querySelectorAll('[data-filter]').forEach((b) => (b.onclick = () => { S.filter[S.tab] = b.dataset.filter; render(); }));
   app.querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => { S.cmpView = b.dataset.view; try { localStorage.setItem('cmpView', S.cmpView); } catch {} render(); }));
+  app.querySelectorAll('[data-sheet-link]').forEach((b) => (b.onclick = () => editSheetLink(t)));
+  app.querySelectorAll('[data-sheet-refresh]').forEach((b) => (b.onclick = () => { S.sheetErr = ''; loadSheet(t, true); render(); }));
+  app.querySelectorAll('[data-purge]').forEach((b) => (b.onclick = async () => {
+    const list = itemsOf(b.dataset.purge);
+    if (!confirmBox(`アプリ内の${KINDS[b.dataset.purge].label}データ${list.length}件を削除しますか？（スプレッドシートには影響しません）`)) return;
+    for (const it of list) await S.store.deleteItem(t.id, it.id).catch(fail);
+  }));
   app.querySelectorAll('[data-goto]').forEach((b) => (b.onclick = () => go(`#/trip/${t.id}/${b.dataset.goto}`)));
 }
 const addBtn = (kind, preset) => `<button class="fab" data-add="${kind}" ${preset ? `data-preset='${esc(JSON.stringify(preset))}'` : ''}>${ic('plus', 18)}${KINDS[kind].add}</button>`;
@@ -415,7 +423,8 @@ function renderCandidates(t) {
   const toggle = `<div class="seg"><button class="${useTable ? '' : 'on'}" data-view="cards">カード</button><button class="${useTable ? 'on' : ''}" data-view="table">表</button></div>`;
   return `<div class="row">${groups.length > 1 ? `<div class="grow">${filterBar(groups)}</div>` : '<span class="grow"></span>'}${toggle}</div>`
     + (html || '<div class="empty">航空券やホテルの候補を並べて比べ、決まったら「決定」にします</div>')
-    + `<p class="muted small">タップすると編集・状態の変更ができます。${useTable ? '表は横にスクロールできます。' : ''}</p>` + addBtn('candidate');
+    + `<p class="muted small">タップすると編集・状態の変更ができます。${useTable ? '表は横にスクロールできます。' : ''}</p>`
+    + '<p class="small"><button class="link" data-sheet-link>スプレッドシートの表を表示する</button></p>' + addBtn('candidate');
 }
 
 // ---------- メモ ----------
@@ -426,7 +435,7 @@ function renderNotes(t) {
   return (cats.length > 1 ? filterBar(cats) : '') + (list.length ? list.map((n) => `<div class="item card note imp-${esc(n.importance || '中')}" data-edit="${esc(n.id)}"><div class="grow">
       <div class="row"><span class="tag">${esc(n.category || 'その他')}</span><span class="title grow">${esc(n.title)}</span>${n.importance === '高' ? '<span class="tag warn">重要</span>' : ''}</div>
       ${n.body ? `<div class="pre small">${esc(n.body)}</div>` : ''}
-      <div class="small muted">${esc(n.source || '')} ${linkOut(n.link)}</div></div></div>`).join('') : '<div class="empty">注意点・持ち物・現地情報などのメモ</div>') + addBtn('note');
+      <div class="small muted">${esc(n.source || '')} ${linkOut(n.link)}</div></div></div>`).join('') : '<div class="empty">注意点・持ち物・現地情報などのメモ</div>') + '<p class="small"><button class="link" data-sheet-link>スプレッドシートの表を表示する</button></p>' + addBtn('note');
 }
 
 // ================= 入力フォーム =================
@@ -453,17 +462,17 @@ function fieldHtml([key, label, type, opt], v, t) {
   }
   return `<label class="field" for="${id}"><span>${esc(label)}${req ? ' *' : ''}</span>${input}</label>`;
 }
-function openSheet(title, inner, onSave, onDelete) {
+function openSheet(title, inner, onSave, onDelete, delLabel = '削除') {
   const el = document.createElement('div');
   el.className = 'sheet-bg';
   el.innerHTML = `<form class="sheet" novalidate><div class="sheet-head"><b>${esc(title)}</b><button type="button" class="icon-btn" data-close aria-label="閉じる">${ic('x', 22)}</button></div>
     <div class="sheet-body">${inner}</div>
-    <div class="sheet-foot">${onDelete ? '<button type="button" class="btn danger" data-del>削除</button>' : ''}<span class="grow"></span>
+    <div class="sheet-foot">${onDelete ? `<button type="button" class="btn danger" data-del>${esc(delLabel)}</button>` : ''}<span class="grow"></span>
     <button type="button" class="btn" data-close>キャンセル</button><button class="btn primary">保存</button></div></form>`;
   document.body.appendChild(el);
   const close = () => el.remove();
   el.addEventListener('click', (e) => { if (e.target === el || e.target.closest('[data-close]')) close(); });
-  el.querySelector('[data-del]')?.addEventListener('click', async () => { if (confirmBox('削除しますか？')) { close(); await onDelete().catch(fail); } });
+  el.querySelector('[data-del]')?.addEventListener('click', async () => { if (confirmBox(`${delLabel}しますか？`)) { close(); await onDelete().catch(fail); } });
   const form = el.querySelector('form');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -510,7 +519,8 @@ function editTrip(t) {
     <label class="field"><span>旅行する人（カンマ区切り）</span><input name="people" value="${esc(people(v).join(', '))}"></label>
     ${cloud ? `<label class="field"><span>共有するGoogleアカウント（メール、カンマ区切り）</span><input name="members" value="${esc((v.members || []).join(', '))}" placeholder="相手のメールアドレス"></label>` : ''}
     <label class="field"><span>旅行メモ</span><textarea name="memo" rows="3">${esc(v.memo)}</textarea></label>
-    ${t ? `<div class="row gap"><button type="button" class="btn" id="exportJson">バックアップ（JSON）を保存</button></div>` : ''}`;
+    ${t ? `<div class="row gap"><button type="button" class="btn" id="sheetLinkBtn">${ic('sheet', 18)}スプレッドシート連携${t.sheet?.url ? '（設定済み）' : ''}</button>
+      <button type="button" class="btn" id="exportJson">${ic('download', 18)}バックアップ（JSON）</button></div>` : ''}`;
   openSheet(t ? '旅行の設定' : '新しい旅行', inner, async (fd) => {
     const data = {
       name: fd.name.trim(), icon: fd.icon, destination: fd.destination.trim(), startDate: fd.startDate, endDate: fd.endDate || fd.startDate,
@@ -523,6 +533,7 @@ function editTrip(t) {
     if (t) await S.store.updateTrip(t.id, data);
     else { const id = await S.store.addTrip(data); go(`#/trip/${id}`); }
   }, t ? async () => { await S.store.deleteTrip(t.id); go('#/'); } : null);
+  $('#sheetLinkBtn')?.addEventListener('click', () => { document.querySelector('.sheet-bg')?.remove(); editSheetLink(t); });
   $('#exportJson')?.addEventListener('click', () => {
     const blob = new Blob([JSON.stringify({ trip: t, items: S.items }, null, 1)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${t.name}.json`; a.click();
@@ -535,3 +546,132 @@ function toast(msg) {
   document.body.appendChild(el); setTimeout(() => el.remove(), 2600);
 }
 function fail(e) { console.error(e); toast('保存できませんでした：' + (e.code === 'permission-denied' ? '権限がありません' : e.message)); }
+
+// ================= スプレッドシート連携 =================
+const SECTION = { compare: '比較', notes: 'メモ' };
+function loadSheet(t, force = false) {
+  const tabs = [...(t.sheet?.compare || []), ...(t.sheet?.notes || [])];
+  if (!t.sheet?.url || !tabs.length) return;
+  Sheet.refresh(t.id, t.sheet, tabs, {
+    force,
+    onDone: () => { S.sheetErr = ''; render(); },
+    onError: (e) => { S.sheetErr = e.message; render(); },
+  });
+}
+const shortTab = (name, all) => {
+  // 共通の頭（例：「シンガポール 」）を省いて短く
+  const pre = all.length > 1 ? all.reduce((p, n) => { let i = 0; while (i < p.length && p[i] === n[i]) i++; return p.slice(0, i); }) : '';
+  const cut = pre.lastIndexOf(' ') + 1 || pre.lastIndexOf('　') + 1;
+  return name.slice(cut) || name;
+};
+const cell = (v) => {
+  if (v === 'TRUE') return ic('check', 16);
+  if (v === 'FALSE') return '<span class="muted">—</span>';
+  if (/^https?:\/\/\S+$/.test(v)) return `<a href="${esc(v)}" target="_blank" rel="noopener" class="ext">リンク${ic('external-link', 14)}</a>`;
+  return esc(v);
+};
+// 1列目が「旅行先」の共通タブは、この旅行の行（と「共通」の行）だけにする
+const PLACE_COL = /^(旅行先|行き先|国|都市|国・地域)$/;
+function forTrip(tab, t) {
+  if (!PLACE_COL.test(tab.header[0] || '')) return tab;
+  const place = (t.sheet?.place || t.destination || '').trim();
+  const hit = (c) => c === '共通' || c === '全般' || (place && c && (c.includes(place) || place.includes(c)));
+  return { ...tab, header: tab.header.slice(1), body: tab.body.filter((r) => hit((r[0] || '').trim())).map((r) => r.slice(1)), common: true };
+}
+function sheetCards(tab) {
+  const { header, body } = tab;
+  // 1列目が短い印（◎おすすめ・カテゴリ等）なら、2列目を名前にする
+  const badgeCol = header.length > 2 && body.every((r) => (r[0] || '').length <= 10) && body.some((r) => r[1]);
+  const titleCol = badgeCol ? 1 : 0;
+  return body.map((r) => {
+    const fields = header.map((h, k) => [h, r[k]]).filter(([h, v], k) => h && v && k !== titleCol && !(badgeCol && k === 0));
+    const open = fields.slice(0, 2); const rest = fields.slice(2);
+    const dl = (fs) => `<dl>${fs.map(([h, v]) => `<dt>${esc(h)}</dt><dd>${cell(v)}</dd>`).join('')}</dl>`;
+    return `<div class="item card cand"><div class="grow">
+      <div class="row"><span class="title grow">${esc(r[titleCol] || r.find(Boolean) || '')}</span>${badgeCol && r[0] ? `<span class="tag">${esc(r[0])}</span>` : ''}</div>
+      ${open.length ? dl(open) : ''}${rest.length ? `<details><summary class="small">詳細</summary>${dl(rest)}</details>` : ''}</div></div>`;
+  }).join('');
+}
+function sheetTable(tab) {
+  const { header, body } = tab;
+  return `<div class="table-wrap"><table class="cmp"><thead><tr>${header.map((h, k) => `<th class="${k === 0 ? 'sticky' : ''}">${esc(h)}</th>`).join('')}</tr></thead>
+    <tbody>${body.map((r) => `<tr>${header.map((h, k) => `<td class="${k === 0 ? 'sticky' : ''}">${cell(r[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function renderSheet(t, which) {
+  loadSheet(t);
+  const names = t.sheet[which];
+  const data = Sheet.cached(t.id);
+  const useTable = (S.cmpView || (innerWidth >= 700 ? 'table' : 'cards')) === 'table';
+  const f = S.filter[S.tab];
+  const shown = names.filter((n) => !f || f === 'すべて' || shortTab(n, names) === f);
+  const when = data?.fetchedAt ? new Date(data.fetchedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const head = `<div class="sheet-src small"><span class="grow">${ic('sheet', 16)} ${esc(data?.title || 'スプレッドシート')}${when ? ` ・ ${when} 時点` : ''}${Sheet.isLoading(t.id) ? ' ・ 更新中…' : ''}</span>
+      <button class="mini wide" data-sheet-refresh>更新</button>${data?.url && safeUrl(data.url) ? `<a class="mini wide" href="${esc(data.url)}" target="_blank" rel="noopener">シートで編集</a>` : ''}</div>
+    ${S.sheetErr ? `<div class="banner warn">シートを読めませんでした：${esc(S.sheetErr)}${data ? '（前回の内容を表示しています）' : ''}</div>` : ''}`;
+  const toggle = `<div class="seg"><button class="${useTable ? '' : 'on'}" data-view="cards">カード</button><button class="${useTable ? 'on' : ''}" data-view="table">表</button></div>`;
+  const bar = `<div class="row">${names.length > 1 ? `<div class="grow">${filterBar(names.map((n) => shortTab(n, names)))}</div>` : '<span class="grow"></span>'}${toggle}</div>`;
+  let body = '';
+  if (!data) body = `<div class="empty">${Sheet.isLoading(t.id) ? 'スプレッドシートを読み込み中…' : '「更新」を押すとスプレッドシートを読み込みます'}</div>`;
+  else body = shown.map((n) => {
+    const raw = data.tabs?.[n];
+    if (!raw) return `<h2>${esc(shortTab(n, names))}</h2><div class="empty">このタブはまだ読み込まれていません。「更新」を押してください</div>`;
+    const tab = forTrip(Sheet.parseTab(raw.values), t);
+    const link = data.url && safeUrl(data.url) ? `<a class="ext" href="${esc(data.url)}#gid=${esc(raw.gid)}" target="_blank" rel="noopener">${ic('external-link', 14)}</a>` : '';
+    return `<h2 class="row">${esc(shortTab(n, names))}&nbsp;${link}</h2>
+      ${tab.pre.length ? `<p class="small muted pre">${tab.pre.map(esc).join('\n')}</p>` : ''}
+      ${tab.body.length ? (useTable ? sheetTable(tab) : sheetCards(tab)) : tab.common ? `<div class="empty">「${esc(t.sheet?.place || t.destination || '')}」の行はまだありません。シートの1列目にこの旅行先の名前を入れて行を足すと、ここに出ます</div>` : ''}
+      ${tab.post.length ? `<div class="card small pre">${tab.post.map(esc).join('\n')}</div>` : ''}`;
+  }).join('');
+  const kind = which === 'compare' ? 'candidate' : 'note';
+  const old = itemsOf(kind).length;
+  const foot = `<p class="small muted">内容の追加・修正はスプレッドシートで行います。<button class="link" data-sheet-link>表示するタブを変える</button></p>
+    ${old ? `<p class="small muted">アプリに取り込んだ以前の${KINDS[kind].label}データが${old}件残っています。<button class="link" data-purge="${kind}">削除する</button></p>` : ''}`;
+  return head + bar + body + foot;
+}
+
+function editSheetLink(t) {
+  const other = S.trips.find((x) => x.id !== t.id && x.sheet?.url)?.sheet;
+  const cfg = t.sheet || (other ? { url: other.url, key: other.key, allTabs: other.allTabs } : {});
+  const tabBoxes = (all, which) => all.map((n) => `<label class="check"><input type="checkbox" name="${which}" value="${esc(n)}" ${(cfg[which] || []).includes(n) ? 'checked' : ''}> ${esc(n)}</label>`).join('');
+  const inner = `<p class="small muted">スプレッドシートの表を、この旅行の「比較」「メモ」にそのまま表示します。内容はシートが正本で、アプリからは編集しません。</p>
+    <label class="field"><span>連携URL（Apps Script のウェブアプリURL）</span><input name="url" type="url" value="${esc(cfg.url)}" placeholder="https://script.google.com/macros/s/…/exec"></label>
+    <label class="field"><span>合言葉</span><input name="key" value="${esc(cfg.key)}" autocomplete="off"></label>
+    <label class="field"><span>シートでの旅行先名（1列目が「旅行先」の共通タブを、この名前の行で絞り込みます）</span><input name="place" value="${esc(cfg.place || t.destination || '')}" placeholder="例：シンガポール"></label>
+    <button type="button" class="btn" id="loadTabs">${ic('sheet', 18)}タブ一覧を読み込む</button>
+    <p class="small err" id="tabsErr"></p>
+    <div id="tabPick">${cfg.allTabs?.length ? pickHtml(cfg.allTabs) : ''}</div>`;
+  function pickHtml(all) {
+    return `<h3>「比較」に表示するタブ</h3><div class="checks">${tabBoxes(all, 'compare')}</div>
+      <h3>「メモ」に表示するタブ</h3><div class="checks">${tabBoxes(all, 'notes')}</div>`;
+  }
+  let allTabs = cfg.allTabs || [];
+  openSheet('スプレッドシート連携', inner, async (fd, form) => {
+    const pick = (w) => [...form.querySelectorAll(`input[name="${w}"]:checked`)].map((i) => i.value);
+    const sheet = { url: fd.url.trim(), key: fd.key.trim(), place: fd.place.trim(), compare: pick('compare'), notes: pick('notes'), allTabs };
+    await S.store.updateTrip(t.id, { sheet });
+    S.sheetErr = '';
+    loadSheet({ ...t, sheet }, true);
+  }, cfg.url ? async () => { await S.store.updateTrip(t.id, { sheet: null }); } : null, '連携を解除');
+  document.getElementById('loadTabs').onclick = async () => {
+    const form = document.querySelector('.sheet');
+    const url = form.url.value.trim(); const key = form.key.value.trim();
+    const err = document.getElementById('tabsErr'); err.textContent = '読み込み中…';
+    try {
+      if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) throw new Error('script.google.com のURLを入れてください');
+      const res = await Sheet.listTabs({ url, key });
+      allTabs = res.tabs;
+      // まだ何も選んでいなければ、共通タブとこの旅行の名前が付いたタブを先に選んでおく
+      if (!(cfg.compare?.length || cfg.notes?.length)) {
+        const place = form.place.value.trim();
+        const hasCommon = allTabs.some((n) => /^(注意点|航空券比較|ホテル比較)$/.test(n));
+        form.querySelectorAll('input[type=checkbox]').forEach((c) => {
+          const n = c.value; const isNote = /注意|メモ/.test(n);
+          const common = /^(注意点|航空券比較|ホテル比較)$/.test(n);
+          const own = place && n.includes(place) && !(hasCommon && /(注意点|航空券比較|ホテル比較)$/.test(n));
+          if ((common || own) && (c.name === 'notes') === isNote) c.checked = true;
+        });
+      }
+      err.textContent = `「${res.title}」のタブを${allTabs.length}個読み込みました`;
+    } catch (e) { err.textContent = '読み込めませんでした：' + e.message; }
+  };
+}
